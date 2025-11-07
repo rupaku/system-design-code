@@ -51,6 +51,7 @@ class StoreInDB(BaseModel):
 
 # Dependency to get the MongoDB collection
 async def get_db_collection():
+    print("inside get_db_collection")
     if db:
         return db[AsyncIOMotorDatabase]
     raise HTTPException(status_code=500 , detail= "db connection error")
@@ -96,83 +97,156 @@ router = APIRouter(prefix="/api/v1")
 def say_hello():
     return "Hello world !" 
 
-
-# @router.post("/urlshortner/long_url")
-# async def create_short_url(request : ShortenRequestBody):
-#     short_code = "ABCD"
-#     short_url = f"{BASE_DOMAIN}/{short_code}"
-
-#     new_link = StoreInDB(
-#         long_url=request.long_url,
-#         short_code=short_code,
-#         owner="rupa",
-#         created_at=datetime.now(),
-#         expires_at=request.expires_at,
-#     )
-#     return ShortenResponse(
-#         unique_id = short_code,
-#         short_url = short_url,
-#         long_url = new_link.long_url,
-#         created_at = new_link.created_at,
-#         expires_at = None,
-#         is_active = True
-#     )
-
-# @router.get("/urlshortner/{short_code}")
-# async def get_long_url(short_code : str):
-#     db ={
-#     "unique_id": "Hnlqxfx",
-#     "short_url": "https://short.io/Hnlqxfx",
-#     "long_url": "https://example.com/v1/api",
-#     "created_at": "2025-11-04T21:24:08.342418",
-#     "expires_at": None,
-#     "is_active": True
-#     }
-
-#     if short_code not in db["unique_id"]:
-#         raise HTTPException(
-#             status_code=status.HTTP_404_NOT_FOUND,
-#             detail="Short URL not found."
-#         )
-
-
-#     # 2. Check for expiration
-#     if db["expires_at"]:
-#         expires_at = datetime.fromisoformat(db["expires_at"])
-#         if expires_at < datetime.now():
-#             raise HTTPException(
-#                 status_code=status.HTTP_410_GONE,
-#                 detail="This link has expired."
-#             )
-
-#     return RedirectResponse(
-#         url=str(db["long_url"]), 
-#         status_code=status.HTTP_307_TEMPORARY_REDIRECT
-#     )
-
-#     # return ShortenResponse(
-#     #     unique_id = db.unique_id,
-#     #     short_url = f"{BASE_DOMAIN}/{db.unique_id}",
-#     #     long_url = db.long_url,
-#     #     created_at =  db.created_at,
-#     #     expires_at = db.expires_at,
-#     #     is_active = db.is_active
-#     # )
-
-
-# @router.patch("/urlshortner/{short_code}")
-# def expire_long_url(request : UpdateRequest):
-#     short_code = generate_unique_code()
-#     short_url = f"{BASE_DOMAIN}/{short_code}"
+# POST
+@router.post(
+        "/shorten",
+        response_model=ShortenResponse,
+        status_code = status.HTTP_201_CREATED,
+        summary="Create a new short URL")
+async def create_short_url(
+    request : ShortenRequestBody,
+    links_collection : CollectionDep = None
+    ):
+    short_code : str
+    link_data = request.model_dump(exclude_unset=True) # to convert it into dict
+    link_data["created_at"] = datetime.now()
+    link_data['short_code'] = short_code
     
-#     return ShortenResponse(
-#         unique_id = short_code,
-#         short_url = short_url,
-#         long_url = request.long_url,
-#         created_at =  datetime.now(),
-#         expires_at = datetime.now(),
-#         is_active = False
-#     )
+    # Insert the document
+    placeholder_data = link_data.copy()
+    placeholder_data['short_code'] = "TEMP_CODE"
+    result = await links_collection.insert_one(placeholder_data)
+    new_link_id = result.inserted_id
+
+    seq_num = int.from_bytes(new_link_id.binary, 'big') % (10**10) # Get a large unique integer
+    short_code = encode_base62(seq_num)
+
+    #Update the document with the final short code
+    await links_collection.update_one(
+        {
+            "_id" : new_link_id
+        },
+        {
+            "$set" : {"short_code" : short_code}
+        }
+    )
+
+    # Fetch the final created document
+    final_document = await links_collection.find_one({"short_code": short_code})
+    new_link = StoreInDB(**final_document)
+    return ShortenResponse(
+        unique_id = new_link.short_code,
+        short_url = f"{BASE_DOMAIN}/{new_link.short_code}",
+        long_url = new_link.long_url,
+        created_at = new_link.created_at,
+        expires_at = new_link.expires_at,
+        is_active = True
+    )
+
+# Redirect
+@app.get(
+    "/{short_code}",
+    summary="Redirect a short URL",
+    responses={
+        307: {"description": "Temporary Redirect to the long URL."},
+        404: {"description": "Short URL not found."},
+        410: {"description": "Link has expired."}
+    }
+)
+async def handle_redirect(short_code: str, links_collection: CollectionDep = None):
+    # Find the link
+    document = await links_collection.find_one({"shortCode": short_code})
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Short URL not found.")
+    
+    link_in_db = StoreInDB(**document)
+
+    # Check for expiration
+    if link_in_db.expires_at and link_in_db.expires_at < datetime.now():
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="This link has expired.")
+
+
+    # Issue the redirect
+    return RedirectResponse(
+        url=str(link_in_db.long_url),
+        status_code=status.HTTP_307_TEMPORARY_REDIRECT
+    )
+
+# GET
+@router.get("/Links/{short_code}",
+            response_model=ShortenResponse,
+            summary="Get link details and analytics")
+async def get_long_url(
+    short_code : str,
+    links_collection: CollectionDep = None):
+
+    document = await links_collection.find_one({"short_code": short_code})
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Short URL not found.")
+    
+    link_in_db = StoreInDB(**document)
+
+    # check for expiration 
+    if link_in_db["expires_at"]:
+        expires_at = datetime.fromisoformat(link_in_db["expires_at"])
+        if expires_at < datetime.now():
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="This link has expired."
+            )
+
+    return ShortenResponse(
+        unique_id = link_in_db.unique_id,
+        short_url = f"{BASE_DOMAIN}/{link_in_db.short_code}",
+        long_url = link_in_db.long_url,
+        created_at =  link_in_db.created_at,
+        expires_at = link_in_db.expires_at,
+        is_active = link_in_db.is_active
+    )
+
+
+@router.patch("/links/{short_code}",
+              response_model=ShortenResponse,
+              summary="Update a short URL")
+async def expire_long_url(short_code: str,
+                    request : UpdateRequest,
+                    links_collection: CollectionDep = None):
+    
+    document = await links_collection.find_one({"short_code": short_code})
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Short URL not found.")
+    
+    link_in_db = StoreInDB(**document)
+
+    #  Prepare update data
+    update_data = request.model_dump(exclude_unset=True)
+    if not update_data:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No update data provided.")
+    
+    #  Perform the update in MongoDB
+    result = await links_collection.update_one(
+        {"short_code": short_code},
+        {"$set": update_data}
+    )
+
+    # Fetch the updated document (or simulate the update for the response)
+    if result.modified_count == 0 and result.matched_count == 1:
+        # No actual change, but document found. Use the current data.
+        updated_document = document
+    else:
+        # Fetch the newly updated document
+        updated_document = await links_collection.find_one({"short_code": short_code})
+
+    updated_link = StoreInDB(**updated_document)
+
+    return ShortenResponse(
+        unique_id = updated_link.short_code,
+        short_url = f"{BASE_DOMAIN}/{updated_link.shortCode}",
+        long_url = updated_link.long_url,
+        created_at =  updated_link.created_at,
+        expires_at = updated_link.expires_at,
+        is_active = False
+    )
 
 
 # Include the router in the main app
