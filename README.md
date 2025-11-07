@@ -9,3 +9,6 @@ system-design-code to code system design concepts and APIs of the system
 
 ### to run app
 #### uvicorn main:app --reload
+
+### for mongodb -> motor
+#### pip install fastapi "uvicorn[standard]" pydantic "motor"
