@@ -7,8 +7,12 @@ system-design-code to code system design concepts and APIs of the system
 #### pip install "fastapi[standard]"
 #### pip freeze > requirements.txt 
 
-### to run app
-#### uvicorn main:app --reload
-
 ### for mongodb -> motor
 #### pip install fastapi "uvicorn[standard]" pydantic "motor"
+
+### install mongodb in local
+#### brew install mongodb-community@8.0 
+#### mongosh
+
+### to run app
+#### uvicorn main:app --reload
