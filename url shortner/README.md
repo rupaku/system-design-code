@@ -1,0 +1,19 @@
+# system-design-code
+system-design-code to code system design concepts and APIs of the system
+### python3 -m venv venv
+### source venv/bin/activate
+
+### fastAPI
+#### pip install "fastapi[standard]"
+#### pip freeze > requirements.txt 
+
+### for mongodb -> motor
+#### pip install fastapi "uvicorn[standard]" pydantic "motor"
+
+### install mongodb in local
+#### brew install mongodb-community@8.0 
+#### brew services start mongodb-community@8.0
+#### mongosh
+
+### to run app
+#### uvicorn main:app --reload
