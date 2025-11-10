@@ -25,8 +25,8 @@ db : Optional[AsyncIOMotorDatabase] = None
 
 class ShortenRequestBody(BaseModel):
     long_url : HttpUrl
-    expires_at : None
-    is_active : bool = True
+    # expires_at : None
+    # is_active : bool = True
 
 class ShortenResponse(BaseModel):
     unique_id : str
@@ -38,8 +38,9 @@ class ShortenResponse(BaseModel):
 
 class UpdateRequest(BaseModel):
     # long_url : Optional[HttpUrl] = None
-    expires_at : Optional[datetime] = None
-    is_active : Optional[bool] = None
+    # expires_at : Optional[datetime] = None
+    # is_active : Optional[bool] = None
+    pass
 
 class StoreInDB(BaseModel):
     model_config = ConfigDict(extra="ignore") # ignore extra _id field
@@ -114,28 +115,14 @@ async def create_short_url(
     ):
     short_code : str
 
-    IST = timezone(timedelta(hours=5, minutes=30))
-    # validate optional expiry
-    if request.expires_at is not None:
-        # normalize to aware IST if naive datetime is provided
-        exp = request.expires_at
-        if exp.tzinfo is None:
-            exp = exp.replace(tzinfo=IST)
-        if exp <= datetime.now(IST):
-            raise HTTPException(status_code=400, detail="expires_at must be in the future")
-    else:
-        exp = None
-
     link_data = request.model_dump(exclude_unset=True) # to convert it into dict
     link_data["long_url"] = str(request.long_url)
-    link_data["created_at"] = datetime.now()
-    link_data["expires_at"] = exp
 
     # Insert placeholder doc to get an ObjectId
     placeholder_data = {
         "long_url": link_data["long_url"],
-        "created_at": link_data["created_at"],
-        "expires_at": link_data.get("expires_at"),
+        "created_at": datetime.now(),
+        "expires_at": None,
         "is_active": link_data.get("is_active", True),
         "short_code": "TEMP_CODE",
     }
@@ -247,7 +234,8 @@ async def expire_long_url(short_code: str,
     #  Prepare update data
     update_data = request.model_dump(exclude_unset=True)
     update_data["is_active"] = False
-        
+    update_data["expires_at"] = datetime.now()
+
     if not update_data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No update data provided.")
     
