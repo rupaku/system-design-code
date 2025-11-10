@@ -25,8 +25,6 @@ db : Optional[AsyncIOMotorDatabase] = None
 
 class ShortenRequestBody(BaseModel):
     long_url : HttpUrl
-    # expires_at : None
-    # is_active : bool = True
 
 class ShortenResponse(BaseModel):
     unique_id : str
