@@ -37,9 +37,6 @@ class ShortenResponse(BaseModel):
     is_active : bool = False
 
 class UpdateRequest(BaseModel):
-    # long_url : Optional[HttpUrl] = None
-    # expires_at : Optional[datetime] = None
-    # is_active : Optional[bool] = None
     pass
 
 class StoreInDB(BaseModel):
