@@ -1,0 +1,46 @@
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - app
+    restart: always
+
+  app:
+    build: .
+    restart: always
+    environment:
+      # Pass environment variables to the FastAPI app for connection strings
+      MONGO_URI: mongodb://mongo:27017/user_db 
+      REDIS_URL: redis://redis:6379/0
+    # Expose port 8000 internally so NGINX can reach it
+    expose:
+      - "8000"
+    depends_on:
+      - mongo
+      - redis
+
+  mongo:
+    image: mongo:latest
+    restart: always
+    volumes:
+      # Persist data so it doesn't disappear when the container stops
+      - mongo-data:/data/db
+    ports:
+      - "27017:27017"
+    # Expose MongoDB on standard port
+
+  redis:
+    image: redis:latest
+    restart: always
+    command: redis-server --port 6379 # Run Redis on a non-default port just to show configuration
+    ports:
+      - "6379:6379"
+    # volumes:
+    #   - redis-data:/data
+
+volumes:
+  mongo-data:
